@@ -648,11 +648,19 @@ const fmtMl = (price, ml) => price && ml ? `$${Math.round(price / ml).toLocaleSt
 
 // ─── COMPONENTES ─────────────────────────────────────────────────────────────
 
-function SiteChip({ site, onToggle }) {
+function SiteChip({ site, onToggle, onRemove }) {
+  const isDefault = ['rouge','farma','lymage','parfum','meli'].includes(site.id);
   return (
-    <div className={`site-chip ${site.active ? 'active' : ''}`} onClick={() => onToggle(site.id)}>
-      <div className="site-chip-dot" />
-      {site.name}
+    <div className={`site-chip ${site.active ? 'active' : ''}`}>
+      <div className="site-chip-dot" onClick={() => onToggle(site.id)} style={{cursor:'pointer'}} />
+      <span onClick={() => onToggle(site.id)} style={{cursor:'pointer'}}>{site.name}</span>
+      {!isDefault && (
+        <span
+          onClick={() => onRemove(site.id)}
+          style={{marginLeft: 4, opacity: 0.5, cursor: 'pointer', fontSize: 10}}
+          title="Eliminar"
+        >✕</span>
+      )}
     </div>
   );
 }
@@ -753,16 +761,56 @@ function ResultsTable({ data }) {
 }
 
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'perfume-hunter-sites';
+const DEFAULT_IDS = DEFAULT_SITES.map(s => s.id);
+
+// Guardar en localStorage
+function saveSites(sitesArr) {
+  try {
+    const json = JSON.stringify(sitesArr);
+    localStorage.setItem(STORAGE_KEY, json);
+    // Verificación: leer de vuelta para confirmar
+    const verify = localStorage.getItem(STORAGE_KEY);
+    return verify === json;
+  } catch (e) {
+    console.warn('localStorage error:', e);
+    return false;
+  }
+}
+
+// Cargar desde localStorage
+function loadSites() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.warn('Error loading sites:', e);
+  }
+  return DEFAULT_SITES;
+}
+
 function App() {
   const [query, setQuery] = useState('');
-  const [sites, setSites] = useState(DEFAULT_SITES);
+  const [sites, setSites] = useState(() => loadSites());
   const [showSites, setShowSites] = useState(false);
   const [newSiteName, setNewSiteName] = useState('');
   const [newSiteUrl, setNewSiteUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [saveStatus, setSaveStatus] = useState(null); // 'saved' | 'error'
   const inputRef = useRef(null);
+
+  // Guardar en localStorage cada vez que cambian los sitios
+  useEffect(() => {
+    const ok = saveSites(sites);
+    setSaveStatus(ok ? 'saved' : 'error');
+    const t = setTimeout(() => setSaveStatus(null), 2000);
+    return () => clearTimeout(t);
+  }, [sites]);
 
   const toggleSite = (id) => {
     setSites(prev => prev.map(s => s.id === id ? {...s, active: !s.active} : s));
@@ -770,14 +818,26 @@ function App() {
 
   const addSite = () => {
     if (!newSiteName.trim() || !newSiteUrl.trim()) return;
-    setSites(prev => [...prev, {
+    const newSite = {
       id: Date.now().toString(),
       name: newSiteName.trim(),
-      url: newSiteUrl.trim(),
+      url: newSiteUrl.trim().replace(/^https?:\/\//, ''),
       active: true
-    }]);
+    };
+    setSites(prev => [...prev, newSite]);
     setNewSiteName('');
     setNewSiteUrl('');
+  };
+
+  const removeSite = (id) => {
+    if (DEFAULT_IDS.includes(id)) return;
+    setSites(prev => prev.filter(s => s.id !== id));
+  };
+
+  const resetSites = () => {
+    if (confirm('¿Restaurar los sitios originales? Se perderán los sitios personalizados.')) {
+      setSites(DEFAULT_SITES);
+    }
   };
 
   const handleSearch = async () => {
@@ -841,6 +901,8 @@ function App() {
           <div className="sites-header" onClick={() => setShowSites(v => !v)}>
             <span className="sites-label">
               Sitios activos: {activeSites.length}/{sites.length}
+              {saveStatus === 'saved' && <span style={{color:'#6dbf7a', marginLeft:10, fontSize:9}}>✓ guardado</span>}
+              {saveStatus === 'error' && <span style={{color:'#e06060', marginLeft:10, fontSize:9}}>⚠ error al guardar</span>}
             </span>
             <span className="sites-toggle">{showSites ? '▲ ocultar' : '▼ configurar'}</span>
           </div>
@@ -849,7 +911,7 @@ function App() {
             <>
               <div className="sites-list">
                 {sites.map(s => (
-                  <SiteChip key={s.id} site={s} onToggle={toggleSite} />
+                  <SiteChip key={s.id} site={s} onToggle={toggleSite} onRemove={removeSite} />
                 ))}
               </div>
               <div className="add-site-row">
@@ -867,6 +929,7 @@ function App() {
                   onChange={e => setNewSiteUrl(e.target.value)}
                 />
                 <button className="add-site-btn" onClick={addSite}>+ Agregar</button>
+                <button className="add-site-btn" onClick={resetSites} style={{opacity:0.4, marginLeft:'auto'}}>↺ Reset</button>
               </div>
             </>
           )}
